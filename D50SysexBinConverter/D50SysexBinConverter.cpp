@@ -37,45 +37,46 @@ struct SysEx
 
 // 4-4
 // Length = 64
-struct Partial_F
-{
-	byte WgPitchCoarse;
-	byte WgPitchFine;
-	byte WgPitchKeyfollow;
-	byte WgModLfoMode;
-	byte WgModPEnvMode;
-	byte WgModBendMode;
-	byte WgWaveForm;
-	byte WgPcmWaveNo;
-	byte WgPulseWidth;
-	byte WgPwVelocityRange;
-	byte WgPwLfoSelect;
-	byte WgPwLfoDepth;
-	byte WgPwAftertouchRange;
-	byte TvfCutoffFrequency;
-	byte TvfResonance;
-	byte TvfKeyfollow;
+//struct Partial_F
+//{
+//	byte WgPitchCoarse;
+//	byte WgPitchFine;
+//	byte WgPitchKeyfollow;
+//	byte WgModLfoMode;
+//	byte WgModPEnvMode;
+//	byte WgModBendMode;
+//	byte WgWaveForm;
+//	byte WgPcmWaveNo;
+//	byte WgPulseWidth;
+//	byte WgPwVelocityRange;
+//	byte WgPwLfoSelect;
+//	byte WgPwLfoDepth;
+//	byte WgPwAftertouchRange;
+//	byte TvfCutoffFrequency;
+//	byte TvfResonance;
+//	byte TvfKeyfollow;
+//
+//	byte TvfBiasPoint;
+//	byte TvfBiasLevel;
+//	byte TvfEnvDepth;
+//	byte TvfEnvVelocityRange;
+//	byte TvfEnvDepthKeyfollow;
+//	byte TvfEnvTimeKeyfollow;
+//	byte TvfEnvTime1;
+//	byte TvfEnvTime2;
+//	byte TvfEnvTime3;
+//	byte TvfEnvTime4;
+//	byte TvfEnvTime5;
+//	byte TvfEnvLevel1;
+//	byte TvfEnvLevel2;
+//	byte TvfEnvLevel3;
+//	byte TvfEnvSustainLevel;
+//	byte TvfEnvEndLevel;
+//
+//	//byte TvfMod
+//};
 
-	byte TvfBiasPoint;
-	byte TvfBiasLevel;
-	byte TvfEnvDepth;
-	byte TvfEnvVelocityRange;
-	byte TvfEnvDepthKeyfollow;
-	byte TvfEnvTimeKeyfollow;
-	byte TvfEnvTime1;
-	byte TvfEnvTime2;
-	byte TvfEnvTime3;
-	byte TvfEnvTime4;
-	byte TvfEnvTime5;
-	byte TvfEnvLevel1;
-	byte TvfEnvLevel2;
-	byte TvfEnvLevel3;
-	byte TvfEnvSustainLevel;
-	byte TvfEnvEndLevel;
-
-	//byte TvfMod
-};
-
+// 4-4
 struct Partial
 {
 	byte arr[64];
@@ -95,6 +96,51 @@ struct Patch
 	byte KeyMode;
 	byte arr[64 - 19];
 };
+
+struct SyxPatch
+{
+	Partial UpperPartial1;
+	Partial UpperPartial2;
+	Common UpperCommon;
+	Partial LowerPartial1;
+	Partial LowerPartial2;
+	Common LowerCommon;
+	Patch Patch;
+};
+
+struct SyxReverb
+{
+	byte arr[376];
+};
+
+struct BinPatch
+{
+	byte ToneName[20];
+	Partial UpperPartial1;
+	Partial UpperPartial2;
+	Partial LowerPartial1;
+	Partial LowerPartial2;
+	Common UpperCommon;
+	Common LowerCommon;
+	Patch Patch;
+};
+
+const int BankSize = 64;
+
+const int PartialLength = 64;
+const int CommonLength = 64;
+const int PatchLength = 64;
+
+const int CommonNameLength = 10;
+const int PatchNameLength = 18;
+
+const int ReverbLength = 376;
+
+const int BinHeaderLength = 0x16;
+const int BinPatchLength = 468;
+
+const int SyxChunkMaxContentLength = 256;
+const int SyxChunkMaxLength = SyxChunkMaxContentLength + sizeof(SysExDt1Header) + sizeof(SysExFooter);
 
 #pragma pack(pop)
 
@@ -178,51 +224,6 @@ void ConvertToD50KeyMode(byte& keyMode)
 	if (keyMode >= 3)
 		keyMode++;
 }
-
-struct SyxPatch
-{
-	Partial UpperPartial1;
-	Partial UpperPartial2;
-	Common UpperCommon;
-	Partial LowerPartial1;
-	Partial LowerPartial2;
-	Common LowerCommon;
-	Patch Patch;
-};
-
-struct SyxReverb
-{
-	byte arr[376];
-};
-
-struct BinPatch
-{
-	byte ToneName[20];
-	Partial UpperPartial1;
-	Partial UpperPartial2;
-	Partial LowerPartial1;
-	Partial LowerPartial2;
-	Common UpperCommon;
-	Common LowerCommon;
-	Patch Patch;
-};
-
-const int BankSize = 64;
-
-const int PartialLength = 64;
-const int CommonLength = 64;
-const int PatchLength = 64;
-
-const int CommonNameLength = 10;
-const int PatchNameLength = 18;
-
-const int ReverbLength = 376;
-
-const int BinHeaderLength = 0x16;
-const int BinPatchLength = 468;
-
-const int SyxChunkMaxContentLength = 256;
-const int SyxChunkMaxLength = SyxChunkMaxContentLength + sizeof(SysExDt1Header) + sizeof(SysExFooter);
 
 std::vector<uint8_t> ReadFile(const std::string& fileName)
 {
