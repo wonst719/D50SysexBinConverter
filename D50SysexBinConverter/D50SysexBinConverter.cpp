@@ -249,47 +249,46 @@ std::string string_format(const std::string& format, Args ... args)
     return std::string(buf.get(), buf.get() + size - 1); // We don't want the '\0' inside
 }
 
-int main()
+void DumpSyx(const std::vector<byte>& syx)
 {
-    std::cout << "Hello World!\n";
-    auto bin = ReadFile("TEST_0.bin");
-    auto syx = ReadFile("TEST_0.syx");
+    std::ofstream os("dump_syx.txt");
+    int base = 0;
+    for (int i = 0; i < syx.size(); i++)
     {
-        std::ofstream os("dump_syx.txt");
-        int base = 0;
-        for (int i = 0; i < syx.size(); i++)
+        if (syx[i] == 0xf7)
         {
-            if (syx[i] == 0xf7)
+            // base .. i
+            for (int x = base; x < base + std::min((int)syx.size() - base, SyxChunkMaxLength); x++)
             {
-                // base .. i
-                for (int x = base; x < base + std::min((int)syx.size() - base, SyxChunkMaxLength); x++)
-                {
-                    std::string a = string_format(" %02X", syx[x]);
-                    os.write(a.c_str(), a.size());
-                }
-                base = i + 1;
-                std::string eol = "\n";
-                os.write(eol.c_str(), eol.size());
-            }
-        }
-    }
-
-    {
-        std::ofstream os("dump_bin.txt");
-        int base = BinHeaderLength;
-        for (int i = 0; i < (bin.size() - BinHeaderLength) / BinPatchLength; i++)
-        {
-            int base = i * BinPatchLength + BinHeaderLength;
-            for (int x = base; x < base + BinPatchLength; x++)
-            {
-                std::string a = string_format(" %02X", bin[x]);
+                std::string a = string_format(" %02X", syx[x]);
                 os.write(a.c_str(), a.size());
             }
+            base = i + 1;
             std::string eol = "\n";
             os.write(eol.c_str(), eol.size());
         }
     }
+}
 
+void DumpBin(const std::vector<byte>& bin)
+{
+    std::ofstream os("dump_bin.txt");
+    int base = BinHeaderLength;
+    for (int i = 0; i < (bin.size() - BinHeaderLength) / BinPatchLength; i++)
+    {
+        int base = i * BinPatchLength + BinHeaderLength;
+        for (int x = base; x < base + BinPatchLength; x++)
+        {
+            std::string a = string_format(" %02X", bin[x]);
+            os.write(a.c_str(), a.size());
+        }
+        std::string eol = "\n";
+        os.write(eol.c_str(), eol.size());
+    }
+}
+
+void ReadSyx(const std::vector<byte>& syx, std::vector<SyxPatch>& syxPatches, std::vector<SyxReverb>& syxReverbs)
+{
     std::vector<byte> patchMem;
     std::vector<byte> reverbMem;
 
@@ -330,18 +329,12 @@ int main()
     assert(patchMem.size() == 0x7000);
     assert(reverbMem.size() == 0x1780);
 
-    std::vector<SyxPatch> syxPatches;
-    std::vector<SyxReverb> syxReverbs;
-
     for (int i = 0; i < patchMem.size() / sizeof(SyxPatch); i++)
     {
         SyxPatch patch;
 
         memcpy(&patch, &patchMem[i * sizeof(SyxPatch)], sizeof(SyxPatch));
 
-        printf("Patch %d: %s\n", i + 1, ConvertToAsciiString(patch.Patch.PatchName).c_str());
-        ConvertToAsciiBytes(patch.Patch.PatchName);
-        ConvertToD50CharBytes(patch.Patch.PatchName);
         printf("Patch %d: %s\n", i + 1, ConvertToAsciiString(patch.Patch.PatchName).c_str());
 
         syxPatches.emplace_back(patch);
@@ -355,10 +348,11 @@ int main()
 
         syxReverbs.emplace_back(reverb);
     }
+}
 
-    // NOTE: There's no reverb section in the bin format
-    std::vector<BinPatch> binPatches;
-
+// NOTE: There's no reverb section in the bin format
+void ConvertSyxToBin(const std::vector<SyxPatch>& syxPatches, std::vector<BinPatch>& binPatches)
+{
     for (int i = 0; i < syxPatches.size(); i++)
     {
         const SyxPatch& syxPatch = syxPatches[i];
@@ -372,7 +366,7 @@ int main()
         binPatch.UpperCommon = syxPatch.UpperCommon;
         binPatch.LowerCommon = syxPatch.LowerCommon;
         binPatch.Patch = syxPatch.Patch;
-        
+
         ConvertToAsciiBytes(binPatch.UpperCommon.ToneName);
         ConvertToAsciiBytes(binPatch.LowerCommon.ToneName);
         ConvertToAsciiBytes(binPatch.Patch.PatchName);
@@ -389,12 +383,31 @@ int main()
 
         binPatches.emplace_back(binPatch);
     }
+}
 
+void WriteBin(const std::string fileName, const std::vector<BinPatch>& binPatches)
+{
     int outLength = binPatches.size() * sizeof(BinPatch);
-    std::basic_ofstream<byte> os("out.bin", std::basic_ofstream<byte>::binary);
+    std::basic_ofstream<byte> os(fileName, std::basic_ofstream<byte>::binary);
     byte binHeader[] = "KoaBankFile00003PG-D50";
     os.write(binHeader, sizeof(binHeader) - 1);
     os.write((byte*)binPatches.data(), outLength);
+}
+
+int main()
+{
+    std::vector<byte> bin = ReadFile("bank.bin");
+    std::vector<byte> syx = ReadFile("bank.syx");
+
+    std::vector<SyxPatch> syxPatches;
+    std::vector<SyxReverb> syxReverbs;
+
+    ReadSyx(syx, syxPatches, syxReverbs);
+
+    std::vector<BinPatch> binPatches;
+    ConvertSyxToBin(syxPatches, binPatches);
+
+    WriteBin("out.bin", binPatches);
 
     printf("ok");
 }
