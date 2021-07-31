@@ -25,12 +25,6 @@ struct SysExFooter
 {
     byte Checksum = 0x00;
     byte EndOfExclusive = 0xF7;
-
-    void EncodeChecksum(std::vector<byte> content)
-    {
-        // TODO
-        Checksum = 1;
-    }
 };
 
 struct SysEx
@@ -39,8 +33,6 @@ struct SysEx
     std::vector<byte> Content;
     SysExFooter Footer;
 };
-
-// 02 00 00 ... 02 02 00 ...
 
 // 4-4
 // Length = 64
@@ -182,7 +174,7 @@ void ConvertToVstiKeyMode(byte& keyMode)
 void ConvertToD50KeyMode(byte& keyMode)
 {
     // There's no SEPARATE mode in the VSTi
-    if (keyMode <= 3)
+    if (keyMode >= 3)
         keyMode++;
 }
 
@@ -249,9 +241,9 @@ std::string string_format(const std::string& format, Args ... args)
     return std::string(buf.get(), buf.get() + size - 1); // We don't want the '\0' inside
 }
 
-void DumpSyx(const std::vector<byte>& syx)
+void DumpSyx(const std::string& fileName, const std::vector<byte>& syx)
 {
-    std::ofstream os("dump_syx.txt");
+    std::ofstream os(fileName);
     int base = 0;
     for (int i = 0; i < syx.size(); i++)
     {
@@ -270,9 +262,9 @@ void DumpSyx(const std::vector<byte>& syx)
     }
 }
 
-void DumpBin(const std::vector<byte>& bin)
+void DumpBin(const std::string& fileName, const std::vector<byte>& bin)
 {
-    std::ofstream os("dump_bin.txt");
+    std::ofstream os(fileName);
     int base = BinHeaderLength;
     for (int i = 0; i < (bin.size() - BinHeaderLength) / BinPatchLength; i++)
     {
@@ -385,19 +377,111 @@ void ConvertSyxToBin(const std::vector<SyxPatch>& syxPatches, std::vector<BinPat
     }
 }
 
+void ConvertBinToSyx(const std::vector<BinPatch>& binPatches, std::vector<SyxPatch>& syxPatches)
+{
+    for (int i = 0; i < binPatches.size(); i++)
+    {
+        const BinPatch& binPatch = binPatches[i];
+        SyxPatch syxPatch;
+
+        syxPatch.UpperPartial1 = binPatch.UpperPartial1;
+        syxPatch.UpperPartial2 = binPatch.UpperPartial2;
+        syxPatch.LowerPartial1 = binPatch.LowerPartial1;
+        syxPatch.LowerPartial2 = binPatch.LowerPartial2;
+
+        syxPatch.UpperCommon = binPatch.UpperCommon;
+        syxPatch.LowerCommon = binPatch.LowerCommon;
+        syxPatch.Patch = binPatch.Patch;
+
+        ConvertToD50CharBytes(syxPatch.UpperCommon.ToneName);
+        ConvertToD50CharBytes(syxPatch.LowerCommon.ToneName);
+        ConvertToD50CharBytes(syxPatch.Patch.PatchName);
+
+        ConvertToD50KeyMode(syxPatch.Patch.KeyMode);
+
+        syxPatch.Patch.arr[44 - 19] = 0x00;
+        syxPatch.Patch.arr[45 - 19] = 0x00;
+        syxPatch.Patch.arr[46 - 19] = 0x00;
+
+        syxPatches.emplace_back(syxPatch);
+    }
+}
+
 void WriteBin(const std::string fileName, const std::vector<BinPatch>& binPatches)
 {
     int outLength = binPatches.size() * sizeof(BinPatch);
     std::basic_ofstream<byte> os(fileName, std::basic_ofstream<byte>::binary);
     byte binHeader[] = "KoaBankFile00003PG-D50";
     os.write(binHeader, sizeof(binHeader) - 1);
-    os.write((byte*)binPatches.data(), outLength);
+    os.write(reinterpret_cast<const byte*>(binPatches.data()), outLength);
+}
+
+byte CalculateChecksum(std::vector<byte>::const_iterator iter, int length)
+{
+    byte checksum = 0;
+    for (int i = 0; i < length; i++, ++iter)
+    {
+        checksum += *iter;
+    }
+
+    return checksum;
+}
+
+byte ConvertToRolandChecksum(byte sum)
+{
+    sum = 0x80 - (sum % 0x80);
+    if (sum == 0x80)
+        sum = 0;
+    return sum;
+}
+
+void CalculateAddress(int base, int offset, byte& h, byte& m, byte& l)
+{
+    int x = base + offset;
+
+    h = (byte)((x >> 14) & 0x7f);
+    m = (byte)((x >> 7) & 0x7f);
+    l = (byte)(x & 0x7f);
+}
+
+void WriteSyx(const std::string fileName, const std::vector<SyxPatch>& syxPatches)
+{
+    assert(syxPatches.size() <= 64);
+
+    std::basic_ofstream<byte> os(fileName, std::basic_ofstream<byte>::binary);
+
+    int outLength = syxPatches.size() * sizeof(SyxPatch);
+    const byte* bytes = reinterpret_cast<const byte*>(syxPatches.data());
+    std::vector<byte> rawVec(bytes, bytes + outLength);
+    for (int i = 0; i < outLength; i += SyxChunkMaxContentLength)
+    {
+        int remainingLength = (outLength - i);
+        int currentChunkLen = std::min(remainingLength, SyxChunkMaxContentLength);
+
+        SysExDt1Header header;
+        SysExFooter footer;
+
+        CalculateAddress(0x8000, i, header.AddressMsb, header.Address, header.AddressLsb);
+
+        footer.Checksum = CalculateChecksum(rawVec.begin() + i, currentChunkLen);
+        footer.Checksum += header.AddressLsb;
+        footer.Checksum += header.Address;
+        footer.Checksum += header.AddressMsb;
+        footer.Checksum = ConvertToRolandChecksum(footer.Checksum);
+
+        os.write(reinterpret_cast<const byte*>(&header), sizeof(header));
+        os.write(bytes + i, currentChunkLen);
+        os.write(reinterpret_cast<const byte*>(&footer), sizeof(footer));
+    }
 }
 
 int main()
 {
     std::vector<byte> bin = ReadFile("bank.bin");
     std::vector<byte> syx = ReadFile("bank.syx");
+
+    DumpBin("dump_bin.txt", bin);
+    DumpSyx("dump_syx.txt", syx);
 
     std::vector<SyxPatch> syxPatches;
     std::vector<SyxReverb> syxReverbs;
@@ -408,6 +492,16 @@ int main()
     ConvertSyxToBin(syxPatches, binPatches);
 
     WriteBin("out.bin", binPatches);
+
+    std::vector<SyxPatch> csyxPatches;
+    ConvertBinToSyx(binPatches, csyxPatches);
+    WriteSyx("out.syx", csyxPatches);
+
+    std::vector<BinPatch> cbinPatches;
+    ConvertSyxToBin(csyxPatches, cbinPatches);
+
+    WriteBin("cout.bin", binPatches);
+    //DumpSyx("dump_out.txt", syx);
 
     printf("ok");
 }
